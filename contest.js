@@ -19,13 +19,46 @@ const ITEM_BOMB = 'ITEM_BOMB';
 
 let target;
 
-// const log = (s, offset) => {
-//     if (typeof s === 'string') {
-//         return offset + s;
-//     } else if (s.length) {
-//         const p = '['
-//     }
-// }
+let _log;
+
+const logObject = (obj, deep, p) => {
+    p = p || '';
+
+    if (deep < 0) {
+        return '...';
+    }
+
+    let s = '{\n';
+    p += '  ';
+    for (let key in obj) {
+        s += p + key + ': ' + _log(obj[key], deep, p + '  ') + ',\n';
+    }
+    p = p.slice(0, -2);
+    s += p + '}';
+    return s;
+};
+
+_log = (n, deep, p) => {
+    p = p || '';
+
+    if (deep < 0) {
+        return '...';
+    }
+
+    let s = '';
+
+    if (typeof n === 'object') {
+        s += logObject(n, deep - 1, p);
+    } else {
+        s += n;
+    }
+
+    return s;
+};
+
+const log = (n, deep = 2) => {
+    printErr(_log(n, deep));
+};
 
 const createUser = (owner, x, y, bombs, bombRange) => ({owner, x, y, bombs, bombRange});
 const createBomb = (owner, x, y, timer, range) => ({owner, x, y, timer, range});
@@ -44,7 +77,8 @@ const getMap = () => {
             const s = strRow[j];
             const cell = {
                 x: j,
-                y: i
+                y: i,
+                explodeFrom: []
             };
 
             if (s === '.') {
@@ -130,7 +164,8 @@ const addBombToMap = (map, bomb) => {
     map[y][x] = {
         type: BOMB,
         data: bomb,
-        explode: true
+        explode: true,
+        explodeFrom: [bomb]
     };
 
     const minY = clamp(0, height - 1, y - (range - 1));
@@ -139,21 +174,25 @@ const addBombToMap = (map, bomb) => {
         const p = map[i][x];
         if (p.type === BOX || p.type === ITEM) {
             p.explode = true;
+            p.explodeFrom.push(bomb);
             break;
         } else if (p.type === WALL) {
             break;
         }
         p.explode = true;
+        p.explodeFrom.push(bomb);
     }
     for (let i = y + 1; i <= maxY; i++) {
         const p = map[i][x];
         if (p.type === BOX || p.type === ITEM) {
             p.explode = true;
+            p.explodeFrom.push(bomb);
             break;
         } else if (p.type === WALL) {
             break;
         }
         p.explode = true;
+        p.explodeFrom.push(bomb);
     }
 
     const minX = clamp(0, width - 1, x - (range - 1));
@@ -162,21 +201,25 @@ const addBombToMap = (map, bomb) => {
         const p = map[y][i];
         if (p.type === BOX || p.type === ITEM) {
             p.explode = true;
+            p.explodeFrom.push(bomb);
             break;
         } else if (p.type === WALL) {
             break;
         }
         p.explode = true;
+        p.explodeFrom.push(bomb);
     }
     for (let i = x + 1; i <= maxX; i++) {
         const p = map[y][i];
         if (p.type === BOX || p.type === ITEM) {
             p.explode = true;
+            p.explodeFrom.push(bomb);
             break;
         } else if (p.type === WALL) {
             break;
         }
         p.explode = true;
+        p.explodeFrom.push(bomb);
     }
 };
 
@@ -195,8 +238,25 @@ const createWave = (map, x, y) => ({
     queue: [[{x, y}]]
 });
 
+const checkExplode = (map, path, x, y) => {
+    const place = map[y][x];
+    if (!place.explode) {
+        return false;
+    }
+
+    const explodeFrom = place.explodeFrom;
+    for (let i = 0; i < explodeFrom.length; i++) {
+        const bomb = explodeFrom[i];
+        if (bomb.owner !== myId && (path.length + 1) === bomb.timer) {
+            return true;
+        }
+    }
+
+    return false;
+};
+
 const checkWaveStepPoint = (wave, path, x, y) => {
-    if (checkPlace(wave.map, x, y)) {
+    if (checkPlace(wave.map, x, y) && !checkExplode(wave.map, path, x, y)) {
         const newPath = path.slice();
         newPath.push({x, y});
         wave.queue.push(newPath);
@@ -264,7 +324,7 @@ const searchPlace = (map, my, curtar) => {
     }
 
     wavePlaces.forEach(wavePlace => {
-        const {x, y, distance} = wavePlace;
+        const {x, y, distance, path} = wavePlace;
 
         if (curtar && (x === curtar.x && y === curtar.y)) {
             return;
@@ -272,7 +332,8 @@ const searchPlace = (map, my, curtar) => {
 
         const place = {
             x, y, distance,
-            boxesExplodes: calculateBoxes(map, x, y, my.bombRange)
+            boxesExplodes: calculateBoxes(map, x, y, my.bombRange),
+            step: path[1] || {x, y}
         };
 
         if (place.boxesExplodes.length === 0) {
@@ -304,7 +365,8 @@ const searchPlace = (map, my, curtar) => {
 const addItemToMap = (map, item) => {
     map[item.y][item.x] = {
         type: ITEM,
-        data: item
+        data: item,
+        explodeFrom: []
     };
 };
 
@@ -357,16 +419,16 @@ while (true) {
                 print('BOMB ' + my.x + ' ' + my.y + ' no target');
             } else {
                 printErr('boxesCount: ' + target.boxesExplodes.length);
-                target.boxesExplodes.forEach(box => {
-                    printErr('box: ' + box.x + ' ' + box.y + ' ' + box.explode);
-                });
-                print('BOMB ' + target.x + ' ' + target.y + ' select new target');
+                print('BOMB ' + target.step.x + ' ' + target.step.y + ' select new target ' +
+                    target.x + ' ' + target.y);
             }
         } else if (my.bombs === 0) {
-            print('MOVE ' + target.x + ' ' + target.y + ' wait for bombs');
+            print('MOVE ' + target.step.x + ' ' + target.step.y + ' wait for bombs ' +
+                target.x + ' ' + target.y);
         } else {
             printErr('boxesCount: ' + target.boxesExplodes.length);
-            print('MOVE ' + target.x + ' ' + target.y + ' move to target');
+            print('MOVE ' + target.step.x + ' ' + target.step.y + ' move to target ' +
+                target.x + ' ' + target.y);
         }
     }
 }

@@ -94,8 +94,7 @@
     "no-const-assign": 2,
     "no-dupe-class-members": 2,
     "no-this-before-super": 2,
-    "no-var": 0,
-    "prefer-const": 2
+    "no-var": 0
   },
   "globals": {
     "readline": true,
