@@ -1,7 +1,7 @@
 // Нужно добавить:
-// 1. Не правильно выбираются места для взрывов пустых клеток
-// 2. Не работает определение цепного взрыка бомб
-// 3. Убегать от бомб (включая собственные)
+// 1. Не правильно выбираются места для взрывов пустых клеток (проверить)
+// 2. Нужно подумать над предсказанием свободного места если ставить новую бомбу (проблемы с клонированием карты)
+// 3. Когда нечего делать - собирать предметы
 
 const inputs = readline().split(' ');
 const width = parseInt(inputs[0]);
@@ -19,46 +19,13 @@ const ITEM_BOMB = 'ITEM_BOMB';
 
 let target;
 
-let _log;
-
-const logObject = (obj, deep, p) => {
-    p = p || '';
-
-    if (deep < 0) {
-        return '...';
+/* eslint-disable no-unused-vars */
+const console = {
+    log: (msg) => {
+        printErr(JSON.stringify(msg));
     }
-
-    let s = '{\n';
-    p += '  ';
-    for (let key in obj) {
-        s += p + key + ': ' + _log(obj[key], deep, p + '  ') + ',\n';
-    }
-    p = p.slice(0, -2);
-    s += p + '}';
-    return s;
 };
-
-_log = (n, deep, p) => {
-    p = p || '';
-
-    if (deep < 0) {
-        return '...';
-    }
-
-    let s = '';
-
-    if (typeof n === 'object') {
-        s += logObject(n, deep - 1, p);
-    } else {
-        s += n;
-    }
-
-    return s;
-};
-
-const log = (n, deep = 2) => {
-    printErr(_log(n, deep));
-};
+/* eslint-enable no-unused-vars */
 
 const createUser = (owner, x, y, bombs, bombRange) => ({owner, x, y, bombs, bombRange});
 const createBomb = (owner, x, y, timer, range) => ({owner, x, y, timer, range});
@@ -107,52 +74,42 @@ const getMap = () => {
 
 const clamp = (x1, x2, x) => x < x1 ? x1 : (x > x2 ? x2 : x);
 
-const calculateExplosians = (map, x, y, range, filter) => {
-    // vertical
-    const minY = clamp(0, height - 1, y - (range - 1));
-    const maxY = clamp(0, height - 1, y + (range - 1));
+const explosiveWave = (map, x, y, range) => {
+    const r = range - 1;
+    const h = height - 1;
+    const w = width - 1;
     const explosians = [];
+
+    const minY = clamp(0, h, y - r);
+    const maxY = clamp(0, h, y + r);
 
     for (let i = y - 1; i >= minY; i--) {
         const p = map[i][x];
-        if (filter(p) && !p.explode) {
-            explosians.push(p);
-            break;
-        } else if (p.type === WALL || p.type === ITEM || p.type === BOX) {
-            break;
-        }
+        if (p.type === WALL) { break; }
+        explosians.push(p);
+        if (p.type === ITEM || p.type === BOX) { break; }
     }
     for (let i = y + 1; i <= maxY; i++) {
         const p = map[i][x];
-        if (filter(p) && !p.explode) {
-            explosians.push(p);
-            break;
-        } else if (p.type === WALL || p.type === ITEM || p.type === BOX) {
-            break;
-        }
+        if (p.type === WALL) { break; }
+        explosians.push(p);
+        if (p.type === ITEM || p.type === BOX) { break; }
     }
 
-    // horizontal
-    const minX = clamp(0, width - 1, x - (range - 1));
-    const maxX = clamp(0, width - 1, x + (range - 1));
+    const minX = clamp(0, w, x - r);
+    const maxX = clamp(0, w, x + r);
 
     for (let i = x - 1; i >= minX; i--) {
         const p = map[y][i];
-        if (filter(p) && !p.explode) {
-            explosians.push(p);
-            break;
-        } else if (p.type === WALL || p.type === ITEM || p.type === BOX) {
-            break;
-        }
+        if (p.type === WALL) { break; }
+        explosians.push(p);
+        if (p.type === ITEM || p.type === BOX) { break; }
     }
     for (let i = x + 1; i <= maxX; i++) {
         const p = map[y][i];
-        if (filter(p) && !p.explode) {
-            explosians.push(p);
-            break;
-        } else if (p.type === WALL || p.type === ITEM || p.type === BOX) {
-            break;
-        }
+        if (p.type === WALL) { break; }
+        explosians.push(p);
+        if (p.type === ITEM || p.type === BOX) { break; }
     }
 
     return explosians;
@@ -168,67 +125,17 @@ const addBombToMap = (map, bomb) => {
         explodeFrom: [bomb]
     };
 
-    const minY = clamp(0, height - 1, y - (range - 1));
-    const maxY = clamp(0, height - 1, y + (range - 1));
-    for (let i = y - 1; i >= minY; i--) {
-        const p = map[i][x];
-        if (p.type === BOX || p.type === ITEM) {
-            p.explode = true;
-            p.explodeFrom.push(bomb);
-            break;
-        } else if (p.type === WALL) {
-            break;
-        } else if (p.type === BOMB && p.timer > bomb.timer) {
-            addBombToMap(map, createBomb(p.owner, p.x, p.y, bomb.timer));
+    const wave = explosiveWave(map, x, y, range);
+    wave.forEach(p => {
+        if (p.explode) {
+            p.explodeFrom.forEach(b => {
+                b.timer = bomb.timer = Math.min(b.timer, bomb.timer);
+            });
         }
-        p.explode = true;
-        p.explodeFrom.push(bomb);
-    }
-    for (let i = y + 1; i <= maxY; i++) {
-        const p = map[i][x];
-        if (p.type === BOX || p.type === ITEM) {
-            p.explode = true;
-            p.explodeFrom.push(bomb);
-            break;
-        } else if (p.type === WALL) {
-            break;
-        } else if (p.type === BOMB && p.timer > bomb.timer) {
-            addBombToMap(map, createBomb(p.owner, p.x, p.y, bomb.timer));
-        }
-        p.explode = true;
-        p.explodeFrom.push(bomb);
-    }
 
-    const minX = clamp(0, width - 1, x - (range - 1));
-    const maxX = clamp(0, width - 1, x + (range - 1));
-    for (let i = x - 1; i >= minX; i--) {
-        const p = map[y][i];
-        if (p.type === BOX || p.type === ITEM) {
-            p.explode = true;
-            p.explodeFrom.push(bomb);
-            break;
-        } else if (p.type === WALL) {
-            break;
-        } else if (p.type === BOMB && p.timer > bomb.timer) {
-            addBombToMap(map, createBomb(p.owner, p.x, p.y, bomb.timer));
-        }
         p.explode = true;
         p.explodeFrom.push(bomb);
-    }
-    for (let i = x + 1; i <= maxX; i++) {
-        const p = map[y][i];
-        if (p.type === BOX || p.type === ITEM) {
-            p.explode = true;
-            p.explodeFrom.push(bomb);
-            break;
-        } else if (p.type === WALL) {
-            break;
-        } else if (p.type === BOMB && p.timer > bomb.timer) {
-            addBombToMap(map, createBomb(p.owner, p.x, p.y, bomb.timer));
-        }
-        p.explode = true;
-        p.explodeFrom.push(bomb);
-    }
+    });
 };
 
 const checkPlace = (map, x, y) => {
@@ -317,6 +224,12 @@ const waveEnd = wave => {
         waveStep(wave, path);
     }
 
+    // первая точка - начальная точка
+    const first = places[0];
+    if (checkExplode(wave.map, first.path, first.x, first.y)) {
+        places.shift();
+    }
+
     return places;
 };
 
@@ -330,17 +243,24 @@ const searchBoxes = (map, wavePlaces, my, curtar) => {
             return;
         }
 
-        const place = {
-            x, y, distance,
-            explosians: calculateExplosians(map, x, y, my.bombRange, p => p.type === BOX),
-            step: path[1] || {x, y}
-        };
+        const explosians = explosiveWave(map, x, y, my.bombRange);
+        const boxExplosians = explosians.filter(p => p.type === BOX && !p.explode);
 
-        if (place.explosians.length === 0) {
+        // если после постановки бомбы в данном случае не останется места спрятаться
+        // то не ставим её
+        if (wavePlaces.length - (explosians.length + 1 - boxExplosians.length) <= 0) {
             return;
         }
 
-        places.push(place);
+        if (explosians.length === 0) {
+            return;
+        }
+
+        places.push({
+            x, y, distance,
+            explosians: boxExplosians,
+            step: path[1] || {x, y}
+        });
     });
 
     places.sort((a, b) => {
@@ -367,11 +287,20 @@ const searchBombPlace = (map, wavePlaces, my) => {
 
     wavePlaces.forEach(wavePlace => {
         const {x, y, distance, path} = wavePlace;
+        const explosians = explosiveWave(map, x, y, my.bombRange);
+
+        // если после постановки бомбы в данном случае не останется места спрятаться
+        // то не ставим её
+        if (wavePlaces.length - (explosians.length + 1) <= 0) {
+            return;
+        }
+
         const place = {
             x, y, distance,
-            explosians: calculateExplosians(map, x, y, my.bombRange, () => true),
+            explosians,
             step: path[1] || {x, y}
         };
+
         places.push(place);
     });
 
@@ -388,6 +317,20 @@ const searchBombPlace = (map, wavePlaces, my) => {
     return places[0] || null;
 };
 
+const searchAvoidPlace = (map, wavePlaces, my) => {
+    const places = wavePlaces.slice().sort((a, b) => a.distance - b.distance);
+    if (places.length === 0) {
+        return null;
+    }
+
+    const {x, y, path} = places[0];
+    return {
+        x, y,
+        explosians: [],
+        step: path[1] || {x, y}
+    };
+};
+
 const searchPlace = (map, my, curtar) => {
     const wave = createWave(map, my.x, my.y);
     const wavePlaces = waveEnd(wave);
@@ -398,7 +341,7 @@ const searchPlace = (map, my, curtar) => {
         addBombToMap(map, createBomb(myId, my.x, my.y, 9, my.bombRange));
     }
 
-    // ищем место с наибольшим количеством коробок
+    // ищем место с наибольшим количеством коробок для взрыва
     const boxedPlace = searchBoxes(map, wavePlaces, my, curtar);
     if (boxedPlace) {
         return {
@@ -407,12 +350,21 @@ const searchPlace = (map, my, curtar) => {
         };
     }
 
-    // бегаем и ставим бомбы
+    // коробки кончились - бегаем и ставим бомбы
     const bombPlace = searchBombPlace(map, wavePlaces, my);
     if (bombPlace) {
         return {
             type: 'bombs',
             target: bombPlace
+        };
+    }
+
+    // нечего делать? просто убегаем от бомб
+    const avoidPlace = searchAvoidPlace(map, wavePlaces, my);
+    if (avoidPlace) {
+        return {
+            type: 'avoid',
+            target: avoidPlace
         };
     }
 
