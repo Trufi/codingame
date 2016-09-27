@@ -2,6 +2,7 @@
 // 1. Не правильно выбираются места для взрывов пустых клеток (проверить)
 // 2. Нужно подумать над предсказанием свободного места если ставить новую бомбу (проблемы с клонированием карты)
 // 3. Когда нечего делать - собирать предметы
+// 4. Избегание взрывов работает только, если нужно сделать 1 шаг, на 2 он уже не способен
 
 const inputs = readline().split(' ');
 const width = parseInt(inputs[0]);
@@ -122,8 +123,9 @@ const addBomb = (state, bomb) => {
     const index = bombs.push(bomb) - 1;
 
     map[y][x] = {
+        x, y,
         type: BOMB,
-        bomb: index,
+        data: index,
         explode: true,
         explodeFrom: [index]
     };
@@ -150,8 +152,8 @@ const checkPlace = (map, x, y) => {
     return type !== BOX && type !== BOMB && type !== WALL;
 };
 
-const createWave = (map, x, y) => ({
-    map,
+const createWave = (state, x, y) => ({
+    state,
     closed: {},
     queue: [[{x, y}]]
 });
@@ -175,7 +177,7 @@ const checkExplode = (state, path, x, y) => {
 };
 
 const checkWaveStepPoint = (state, wave, path, x, y) => {
-    if (checkPlace(wave.map, x, y) && !checkExplode(state, path, x, y)) {
+    if (checkPlace(state.map, x, y) && !checkExplode(state, path, x, y)) {
         const newPath = path.slice();
         newPath.push({x, y});
         wave.queue.push(newPath);
@@ -230,14 +232,44 @@ const waveEnd = (state, wave) => {
 
     // первая точка - начальная точка
     const first = places[0];
-    if (checkExplode(wave.map, first.path, first.x, first.y)) {
+    if (!checkPlace(state.map, first.x, first.y) || checkExplode(state, first.path, first.x, first.y)) {
         places.shift();
     }
 
     return places;
 };
 
-const searchBoxes = (map, wavePlaces, my, curtar) => {
+const cloneObj = obj => Object.assign({}, obj);
+
+const cloneState = state => {
+    state = Object.assign({}, state);
+    state.map = state.map.map(row => {
+        return row.map(cell => {
+            cell = Object.assign({}, cell);
+            cell.explodeFrom = [...cell.explodeFrom];
+            return cell;
+        });
+    });
+    state.enemies = state.enemies.map(cloneObj);
+    state.items = state.items.map(cloneObj);
+    state.bombs = state.bombs.map(cloneObj);
+    return state;
+};
+
+const checkFreeSpace = (state, x, y, bombRange) => {
+    state = cloneState(state);
+    addBomb(state, createBomb(myId, x, y, 8, bombRange));
+
+    const {map} = state;
+
+    const wave = createWave(state, x, y);
+    const wavePlaces = waveEnd(state, wave).filter(p => !map[p.y][p.x].explode);
+
+    return wavePlaces.length > 0;
+};
+
+const searchBoxes = (state, wavePlaces, my, curtar) => {
+    const {map} = state;
     const places = [];
 
     wavePlaces.forEach(wavePlace => {
@@ -252,7 +284,8 @@ const searchBoxes = (map, wavePlaces, my, curtar) => {
 
         // если после постановки бомбы в данном случае не останется места спрятаться
         // то не ставим её
-        if (wavePlaces.length - (explosians.length + 1 - boxExplosians.length) <= 0) {
+        const freeSpace = checkFreeSpace(state, x, y, my.bombRange);
+        if (!freeSpace) {
             return;
         }
 
@@ -266,6 +299,7 @@ const searchBoxes = (map, wavePlaces, my, curtar) => {
             step: path[1] || {x, y}
         });
     });
+    console.log(places);
 
     places.sort((a, b) => {
         // если у нас бомб больше одной - выбираем ближайший ящик
@@ -283,10 +317,15 @@ const searchBoxes = (map, wavePlaces, my, curtar) => {
         return count;
     });
 
+    if (places[0]) {
+        checkFreeSpace(state, places[0].x, places[0].y, my.bombRange, true);
+    }
+
     return places[0] || null;
 };
 
-const searchBombPlace = (map, wavePlaces, my) => {
+const searchBombPlace = (state, wavePlaces, my) => {
+    const {map} = state;
     const places = [];
 
     wavePlaces.forEach(wavePlace => {
@@ -295,7 +334,8 @@ const searchBombPlace = (map, wavePlaces, my) => {
 
         // если после постановки бомбы в данном случае не останется места спрятаться
         // то не ставим её
-        if (wavePlaces.length - (explosians.length + 1) <= 0) {
+        const freeSpace = checkFreeSpace(state, x, y, my.bombRange);
+        if (!freeSpace) {
             return;
         }
 
@@ -321,7 +361,7 @@ const searchBombPlace = (map, wavePlaces, my) => {
     return places[0] || null;
 };
 
-const searchAvoidPlace = (map, wavePlaces, my) => {
+const searchAvoidPlace = (state, wavePlaces, my) => {
     const places = wavePlaces.slice().sort((a, b) => a.distance - b.distance);
     if (places.length === 0) {
         return null;
@@ -336,8 +376,7 @@ const searchAvoidPlace = (map, wavePlaces, my) => {
 };
 
 const searchPlace = (state, my, curtar) => {
-    const {map} = state;
-    const wave = createWave(map, my.x, my.y);
+    const wave = createWave(state, my.x, my.y);
     const wavePlaces = waveEnd(state, wave);
 
     // если стоим на цели, то добавляем будущую бомбу на карту для расчета ценности взрыва
@@ -347,7 +386,7 @@ const searchPlace = (state, my, curtar) => {
     }
 
     // ищем место с наибольшим количеством коробок для взрыва
-    const boxedPlace = searchBoxes(map, wavePlaces, my, curtar);
+    const boxedPlace = searchBoxes(state, wavePlaces, my, curtar);
     if (boxedPlace) {
         return {
             type: 'boxes',
@@ -356,7 +395,7 @@ const searchPlace = (state, my, curtar) => {
     }
 
     // коробки кончились - бегаем и ставим бомбы
-    const bombPlace = searchBombPlace(map, wavePlaces, my);
+    const bombPlace = searchBombPlace(state, wavePlaces, my);
     if (bombPlace) {
         return {
             type: 'bombs',
@@ -365,7 +404,7 @@ const searchPlace = (state, my, curtar) => {
     }
 
     // нечего делать? просто убегаем от бомб
-    const avoidPlace = searchAvoidPlace(map, wavePlaces, my);
+    const avoidPlace = searchAvoidPlace(state, wavePlaces, my);
     if (avoidPlace) {
         return {
             type: 'avoid',
@@ -377,11 +416,12 @@ const searchPlace = (state, my, curtar) => {
 };
 
 const addItem = (state, item) => {
-    const {map} = state;
+    const {map, items} = state;
+    const index = items.push(item) - 1;
 
     map[item.y][item.x] = {
         type: ITEM,
-        data: item,
+        data: index,
         explodeFrom: []
     };
 };
@@ -422,13 +462,12 @@ while (true) {
         }
     }
 
-    console.log(state.map);
-
     const place = searchPlace(state, my);
     if (!place) {
         print('MOVE ' + my.x + ' ' + my.y + ' no target no type');
         continue;
     }
+    console.log(place);
 
     const type = place.type;
     target = place.target;
