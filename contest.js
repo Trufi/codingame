@@ -115,26 +115,29 @@ const explosiveWave = (map, x, y, range) => {
     return explosians;
 };
 
-const addBombToMap = (map, bomb) => {
+const addBomb = (state, bomb) => {
+    const {map, bombs} = state;
     const {x, y, range} = bomb;
+
+    const index = bombs.push(bomb) - 1;
 
     map[y][x] = {
         type: BOMB,
-        data: bomb,
+        bombIndex: index,
         explode: true,
-        explodeFrom: [bomb]
+        explodeFrom: [index]
     };
 
-    const wave = explosiveWave(map, x, y, range);
-    wave.forEach(p => {
-        if (p.explode) {
-            p.explodeFrom.forEach(b => {
-                b.timer = bomb.timer = Math.min(b.timer, bomb.timer);
+    const mapCells = explosiveWave(map, x, y, range);
+    mapCells.forEach(cell => {
+        if (cell.explode) {
+            cell.explodeFrom.forEach(bombIndex => {
+                bombs[bombIndex].timer = bomb.timer = Math.min(bombs[bombIndex].timer, bomb.timer);
             });
         }
 
-        p.explode = true;
-        p.explodeFrom.push(bomb);
+        cell.explode = true;
+        cell.explodeFrom.push(index);
     });
 };
 
@@ -331,14 +334,15 @@ const searchAvoidPlace = (map, wavePlaces, my) => {
     };
 };
 
-const searchPlace = (map, my, curtar) => {
+const searchPlace = (state, my, curtar) => {
+    const {map} = state;
     const wave = createWave(map, my.x, my.y);
     const wavePlaces = waveEnd(wave);
 
     // если стоим на цели, то добавляем будущую бомбу на карту для расчета ценности взрыва
     // но обязательно после поиска пути
     if (curtar) {
-        addBombToMap(map, createBomb(myId, my.x, my.y, 9, my.bombRange));
+        addBomb(state, createBomb(myId, my.x, my.y, 9, my.bombRange));
     }
 
     // ищем место с наибольшим количеством коробок для взрыва
@@ -371,7 +375,9 @@ const searchPlace = (map, my, curtar) => {
     return null;
 };
 
-const addItemToMap = (map, item) => {
+const addItem = (state, item) => {
+    const {map} = state;
+
     map[item.y][item.x] = {
         type: ITEM,
         data: item,
@@ -381,12 +387,14 @@ const addItemToMap = (map, item) => {
 
 // game loop
 while (true) {
-    const map = getMap();
+    const state = {
+        map: getMap(),
+        bombs: [],
+        items: [],
+        enemies: []
+    };
 
     var my;
-    const enemies = [];
-    const bombs = [];
-    const items = [];
 
     var entities = parseInt(readline());
     for (var i = 0; i < entities; i++) {
@@ -402,20 +410,20 @@ while (true) {
             if (owner === myId) {
                 my = createUser(owner, x, y, param1, param2);
             } else {
-                enemies.push(createUser(owner, x, y, param1, param2));
+                state.enemies.push(createUser(owner, x, y, param1, param2));
             }
         } else if (entityType === 1) {
             const bomb = createBomb(owner, x, y, param1, param2);
-            bombs.push(bomb);
-            addBombToMap(map, bomb);
+            addBomb(state, bomb);
         } else if (entityType === 2) {
             const item = createItem(x, y, param1);
-            items.push(item);
-            addItemToMap(map, item);
+            addItem(state, item);
         }
     }
 
-    const place = searchPlace(map, my);
+    console.log(state.map);
+
+    const place = searchPlace(state, my);
     if (!place) {
         print('MOVE ' + my.x + ' ' + my.y + ' no target no type');
         continue;
@@ -432,7 +440,7 @@ while (true) {
     }
 
     if (my.bombs > 0 && target.x === my.x && target.y === my.y) {
-        const place = searchPlace(map, my, target);
+        const place = searchPlace(state, my, target);
 
         if (!place) {
             print('MOVE ' + my.x + ' ' + my.y + ' no target no type');
