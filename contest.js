@@ -123,7 +123,7 @@ const addBomb = (state, bomb) => {
 
     map[y][x] = {
         type: BOMB,
-        bombIndex: index,
+        bomb: index,
         explode: true,
         explodeFrom: [index]
     };
@@ -156,7 +156,8 @@ const createWave = (map, x, y) => ({
     queue: [[{x, y}]]
 });
 
-const checkExplode = (map, path, x, y) => {
+const checkExplode = (state, path, x, y) => {
+    const {map, bombs} = state;
     const place = map[y][x];
     if (!place.explode) {
         return false;
@@ -164,7 +165,7 @@ const checkExplode = (map, path, x, y) => {
 
     const explodeFrom = place.explodeFrom;
     for (let i = 0; i < explodeFrom.length; i++) {
-        const bomb = explodeFrom[i];
+        const bomb = bombs[explodeFrom[i]];
         if (path.length + 1 === bomb.timer) {
             return true;
         }
@@ -173,8 +174,8 @@ const checkExplode = (map, path, x, y) => {
     return false;
 };
 
-const checkWaveStepPoint = (wave, path, x, y) => {
-    if (checkPlace(wave.map, x, y) && !checkExplode(wave.map, path, x, y)) {
+const checkWaveStepPoint = (state, wave, path, x, y) => {
+    if (checkPlace(wave.map, x, y) && !checkExplode(state, path, x, y)) {
         const newPath = path.slice();
         newPath.push({x, y});
         wave.queue.push(newPath);
@@ -183,19 +184,19 @@ const checkWaveStepPoint = (wave, path, x, y) => {
 
 const wavePointsSort = (a, b) => b.length - a.length;
 
-const waveStep = (wave, path) => {
+const waveStep = (state, wave, path) => {
     const point = path[path.length - 1];
     const {x, y} = point;
 
-    checkWaveStepPoint(wave, path, x - 1, y);
-    checkWaveStepPoint(wave, path, x + 1, y);
-    checkWaveStepPoint(wave, path, x, y - 1);
-    checkWaveStepPoint(wave, path, x, y + 1);
+    checkWaveStepPoint(state, wave, path, x - 1, y);
+    checkWaveStepPoint(state, wave, path, x + 1, y);
+    checkWaveStepPoint(state, wave, path, x, y - 1);
+    checkWaveStepPoint(state, wave, path, x, y + 1);
 
     wave.queue.sort(wavePointsSort);
 };
 
-const waveEnd = wave => {
+const waveEnd = (state, wave) => {
     if (wave.queue.length === 0) { return null; }
 
     const places = [];
@@ -224,7 +225,7 @@ const waveEnd = wave => {
 
         places.push(place);
 
-        waveStep(wave, path);
+        waveStep(state, wave, path);
     }
 
     // первая точка - начальная точка
@@ -337,7 +338,7 @@ const searchAvoidPlace = (map, wavePlaces, my) => {
 const searchPlace = (state, my, curtar) => {
     const {map} = state;
     const wave = createWave(map, my.x, my.y);
-    const wavePlaces = waveEnd(wave);
+    const wavePlaces = waveEnd(state, wave);
 
     // если стоим на цели, то добавляем будущую бомбу на карту для расчета ценности взрыва
     // но обязательно после поиска пути
