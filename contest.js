@@ -1,8 +1,7 @@
 // Нужно добавить:
 // 1. Не правильно выбираются места для взрывов пустых клеток (проверить)
-// 2. Нужно подумать над предсказанием свободного места если ставить новую бомбу (проблемы с клонированием карты)
-// 3. Когда нечего делать - собирать предметы
-// 4. Избегание взрывов работает только, если нужно сделать 1 шаг, на 2 он уже не способен
+// 2. Держаться подальше от других пользователей (???)
+// 3. Зажимать или убивать других пользователей
 
 const DEBUG = true;
 
@@ -469,12 +468,6 @@ const searchBombPlace = (state, wavePlaces, my) => {
     });
 
     places.sort((a, b) => {
-        // если у нас бомб больше одной - выбираем ближайший ящик
-        // если одна - ищем наиболее эффективных бах!
-        if (my.bombs > 1) {
-            return a.distance - b.distance;
-        }
-
         const count = b.explosians.length - a.explosians.length;
 
         if (count === 0) {
@@ -500,6 +493,21 @@ const searchAvoidPlace = (state, wavePlaces, my) => {
     if (places.length === 0) {
         return null;
     }
+
+    const {x, y, path} = places[0];
+    return {
+        x, y,
+        explosians: [],
+        step: path[1] || {x, y}
+    };
+};
+
+const searchItemPlace = (state, wavePlaces, my) => {
+    const places = wavePlaces.filter(p => state.map[p.y][p.x].type === ITEM);
+    if (places.length === 0) {
+        return null;
+    }
+    places.sort((a, b) => a.distance - b.distance);
 
     const {x, y, path} = places[0];
     return {
@@ -541,6 +549,14 @@ const searchPlace = (state, my, curtar) => {
         return {
             type: 'boxes',
             target: boxedPlace
+        };
+    }
+
+    const itemPlace = searchItemPlace(state, wavePlaces, my);
+    if (itemPlace) {
+        return {
+            type: 'items',
+            target: itemPlace
         };
     }
 
@@ -609,7 +625,7 @@ while (true) {
 
     let firstPlaceTime = Date.now();
     const place = searchPlace(state, my);
-    firstPlaceTime = firstPlaceTime - Date.now();
+    firstPlaceTime = Date.now() - firstPlaceTime;
 
     if (!place) {
         print('MOVE ' + my.x + ' ' + my.y + ' no target no type');
@@ -630,7 +646,7 @@ while (true) {
         my.bombs > 0 && target.x === my.x && target.y === my.y) {
         const placeNext = firstPlaceTime > FIRST_PLACE_TIME_THRESHOLD ? place : searchPlace(state, my, target);
         if (firstPlaceTime > FIRST_PLACE_TIME_THRESHOLD) {
-            console.log('First place time threshold! ' + firstPlaceTime);
+            log('First place time threshold! ' + firstPlaceTime);
         }
 
         if (!placeNext) {
