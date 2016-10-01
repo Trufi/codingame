@@ -4,7 +4,7 @@
 // 3. Когда нечего делать - собирать предметы
 // 4. Избегание взрывов работает только, если нужно сделать 1 шаг, на 2 он уже не способен
 
-const DEBUG = false;
+const DEBUG = true;
 const TIME_THRESHOLD = 70;
 
 const inputs = readline().split(' ');
@@ -193,6 +193,12 @@ const checkExplode = (state, path, x, y) => {
         return false;
     }
 
+    // плохо, если на пути встретился item, который скоро взорвется
+    // поведение бомб долго перерасчитать
+    if (place.type === ITEM) {
+        return true;
+    }
+
     const explodeFrom = place.explodeFrom;
     for (let i = 0; i < explodeFrom.length; i++) {
         const bomb = bombs[explodeFrom[i]];
@@ -346,9 +352,9 @@ const findExplodeAvoidingPath = (state, x, y, stepsToTarget = 0) => {
             const {x, y} = path[i];
             const cell = map[y][x];
 
-            // если на нашем пути оказался предмет, то мы его возьмем
+            // если на нашем пути оказался взрывающийся предмет, то мы его возьмем
             // и взрывная волна не остановится на нём
-            if (cell.type === ITEM) {
+            if (cell.type === ITEM && cell.explode) {
                 return;
             }
 
@@ -611,8 +617,12 @@ while (true) {
         continue;
     }
 
-    if (my.bombs > 0 && target.x === my.x && target.y === my.y) {
+    if ((type === 'boxes' || type === 'bombs') &&
+        my.bombs > 0 && target.x === my.x && target.y === my.y) {
         const placeNext = lastTime > TIME_THRESHOLD ? place : searchPlace(state, my, target);
+        if (lastTime > TIME_THRESHOLD) {
+            printErr('Time > Threshold');
+        }
 
         if (!placeNext) {
             print('MOVE ' + my.x + ' ' + my.y + ' no target no type');
