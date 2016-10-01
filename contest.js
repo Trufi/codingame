@@ -10,7 +10,7 @@ const width = parseInt(inputs[0]);
 const height = parseInt(inputs[1]);
 const myId = parseInt(inputs[2]);
 
-const FIRST_PLACE_TIME_THRESHOLD = 50;
+const FIRST_PLACE_TIME_THRESHOLD = 30;
 
 const FLOOR = 'FLOOR';
 const BOMB = 'BOMB';
@@ -644,9 +644,12 @@ while (true) {
 
     if ((type === 'boxes' || type === 'bombs') &&
         my.bombs > 0 && target.x === my.x && target.y === my.y) {
-        const placeNext = firstPlaceTime > FIRST_PLACE_TIME_THRESHOLD ? place : searchPlace(state, my, target);
+        let placeNext;
         if (firstPlaceTime > FIRST_PLACE_TIME_THRESHOLD) {
+            placeNext = place;
             log('First place time threshold! ' + firstPlaceTime);
+        } else {
+            placeNext = searchPlace(state, my, target);
         }
 
         if (!placeNext) {
