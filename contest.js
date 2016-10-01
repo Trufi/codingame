@@ -493,8 +493,15 @@ const searchAvoidPlace = (state, wavePlaces, my) => {
     if (places.length === 0) {
         return null;
     }
+    const result = places.find(place => {
+        const canAvoid = findExplodeAvoidingPath(state, place.x, place.y, place.path.length - 1);
+        return canAvoid;
+    });
+    if (!result) {
+        return null;
+    }
 
-    const {x, y, path} = places[0];
+    const {x, y, path} = result;
     return {
         x, y,
         explosians: [],
@@ -509,7 +516,15 @@ const searchItemPlace = (state, wavePlaces, my) => {
     }
     places.sort((a, b) => a.distance - b.distance);
 
-    const {x, y, path} = places[0];
+    const result = places.find(place => {
+        const canAvoid = findExplodeAvoidingPath(state, place.x, place.y, place.path.length - 1);
+        return canAvoid;
+    });
+    if (!result) {
+        return null;
+    }
+
+    const {x, y, path} = result;
     return {
         x, y,
         explosians: [],
