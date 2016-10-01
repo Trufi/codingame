@@ -4,7 +4,8 @@
 // 3. Когда нечего делать - собирать предметы
 // 4. Избегание взрывов работает только, если нужно сделать 1 шаг, на 2 он уже не способен
 
-const DEBUG = true;
+const DEBUG = false;
+const TIME_THRESHOLD = 70;
 
 const inputs = readline().split(' ');
 const width = parseInt(inputs[0]);
@@ -21,6 +22,7 @@ const ITEM_RANGE = 'ITEM_RANGE';
 const ITEM_BOMB = 'ITEM_BOMB';
 
 let target;
+let lastTime = 0;
 
 /* eslint-disable no-unused-vars */
 const log = msg => {
@@ -265,21 +267,52 @@ const waveEnd = (state, wave) => {
     return places;
 };
 
-const cloneObj = obj => Object.assign({}, obj);
-
 const cloneState = state => {
-    state = Object.assign({}, state);
-    state.map = state.map.map(row => {
-        return row.map(cell => {
-            cell = Object.assign({}, cell);
-            cell.explodeFrom = [...cell.explodeFrom];
-            return cell;
-        });
-    });
-    state.enemies = state.enemies.map(cloneObj);
-    state.items = state.items.map(cloneObj);
-    state.bombs = state.bombs.map(cloneObj);
-    return state;
+    const st = {};
+
+    const map = state.map;
+    const tmap = st.map = [];
+    for (let i = 0; i < map.length; i++) {
+        const trow = tmap[i] = [];
+        const row = map[i];
+        for (let j = 0; j < row.length; j++) {
+            const cell = row[j];
+            trow[j] = {
+                x: cell.x,
+                y: cell.y,
+                explode: cell.explode,
+                data: cell.data,
+                type: cell.type,
+                explodeFrom: cell.explodeFrom.slice()
+            };
+        }
+    }
+
+    const titems = st.items = [];
+    const items = state.items;
+    for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        titems[i] = {
+            x: item.x,
+            y: item.y,
+            type: item.type
+        };
+    }
+
+    const tbombs = st.bombs = [];
+    const bombs = state.bombs;
+    for (let i = 0; i < bombs.length; i++) {
+        const bomb = bombs[i];
+        tbombs[i] = {
+            x: bomb.x,
+            y: bomb.y,
+            owner: bomb.type,
+            timer: bomb.timer,
+            range: bomb.range
+        };
+    }
+
+    return st;
 };
 
 const cellExplodeTimer = (state, cell) => {
@@ -579,15 +612,15 @@ while (true) {
     }
 
     if (my.bombs > 0 && target.x === my.x && target.y === my.y) {
-        const place = searchPlace(state, my, target);
+        const placeNext = lastTime > TIME_THRESHOLD ? place : searchPlace(state, my, target);
 
-        if (!place) {
+        if (!placeNext) {
             print('MOVE ' + my.x + ' ' + my.y + ' no target no type');
             continue;
         }
 
-        const type = place.type;
-        target = place.target;
+        const type = placeNext.type;
+        target = placeNext.target;
 
         if (!target) {
             print('BOMB ' + my.x + ' ' + my.y + ' no target ' + type);
@@ -605,5 +638,7 @@ while (true) {
             target.x + ' ' + target.y + ' ' + type);
     }
 
-    log('Time: ' + (Date.now() - startTime) + 'ms');
+    lastTime = (Date.now() - startTime);
+
+    log('Time: ' + lastTime + 'ms');
 }
