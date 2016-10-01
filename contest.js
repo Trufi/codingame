@@ -5,12 +5,13 @@
 // 4. Избегание взрывов работает только, если нужно сделать 1 шаг, на 2 он уже не способен
 
 const DEBUG = true;
-const TIME_THRESHOLD = 70;
 
 const inputs = readline().split(' ');
 const width = parseInt(inputs[0]);
 const height = parseInt(inputs[1]);
 const myId = parseInt(inputs[2]);
+
+const FIRST_PLACE_TIME_THRESHOLD = 50;
 
 const FLOOR = 'FLOOR';
 const BOMB = 'BOMB';
@@ -20,9 +21,6 @@ const ITEM = 'ITEM';
 
 const ITEM_RANGE = 'ITEM_RANGE';
 const ITEM_BOMB = 'ITEM_BOMB';
-
-let target;
-let lastTime = 0;
 
 /* eslint-disable no-unused-vars */
 const log = msg => {
@@ -180,8 +178,7 @@ const checkPlace = (map, x, y) => {
     return type !== BOX && type !== BOMB && type !== WALL;
 };
 
-const createWave = (state, x, y) => ({
-    state,
+const createWave = (x, y) => ({
     closed: {},
     queue: [[{x, y}]]
 });
@@ -232,7 +229,7 @@ const waveStep = (state, wave, path) => {
     wave.queue.sort(wavePointsSort);
 };
 
-const waveEnd = (state, wave) => {
+const waveEnd = (state, wave, findCondition) => {
     if (wave.queue.length === 0) { return null; }
 
     const places = [];
@@ -259,18 +256,24 @@ const waveEnd = (state, wave) => {
             path: path.slice()
         };
 
-        places.push(place);
+        if (findCondition && findCondition(state, place)) {
+            return place;
+        }
 
+        places.push(place);
         waveStep(state, wave, path);
     }
 
-    // первая точка - начальная точка
-    const first = places[0];
-    if (!checkPlace(state.map, first.x, first.y) || checkExplode(state, first.path, first.x, first.y)) {
-        places.shift();
-    }
+    if (!findCondition) {
+        // первая точка - начальная точка
+        const first = places[0];
+        if (!checkPlace(state.map, first.x, first.y) ||
+            checkExplode(state, first.path, first.x, first.y)) {
+            places.shift();
+        }
 
-    return places;
+        return places;
+    }
 };
 
 const cloneState = state => {
@@ -324,62 +327,65 @@ const cloneState = state => {
 const cellExplodeTimer = (state, cell) => {
     if (!cell.explode) { return Infinity; }
     const {bombs} = state;
+    const {explodeFrom} = cell;
     let timer = Infinity;
-    cell.explodeFrom.forEach(index => {
-        const bombTimer = bombs[index].timer;
+    for (let i = 0; i < explodeFrom.length; i++) {
+        const bombTimer = bombs[explodeFrom[i]].timer;
         if (timer > bombTimer) {
             timer = bombTimer;
         }
-    });
+    }
     return timer;
 };
 
-const findExplodeAvoidingPath = (state, x, y, stepsToTarget = 0) => {
+const explodeAvoidingPathCondition = (stepsToTarget, state, wavePlace) => {
     const {map} = state;
-    const wave = createWave(state, x, y);
-    const wavePlaces = waveEnd(state, wave).filter(p => !map[p.y][p.x].explode);
-    wavePlaces.sort((a, b) => a.distance - b.distance);
+    const {x, y, path} = wavePlace;
 
-    const avoidingPlaces = [];
+    if (map[y][x].explode) {
+        return false;
+    }
 
-    wavePlaces.forEach(place => {
-        const placeState = state;// cloneState(state);
-        const {map} = placeState;
-        const {path} = place;
-        let leftSteps = Infinity;
+    let leftSteps = Infinity;
 
-        for (let i = 0; i < path.length; i++) {
-            const {x, y} = path[i];
-            const cell = map[y][x];
+    for (let i = 0; i < path.length; i++) {
+        const p = path[i];
+        const cell = map[p.y][p.x];
 
-            // если на нашем пути оказался взрывающийся предмет, то мы его возьмем
-            // и взрывная волна не остановится на нём
-            if (cell.type === ITEM && cell.explode) {
-                return;
-            }
-
-            if (!cell.explode) {
-                continue;
-            }
-
-            const explodeTimer = cellExplodeTimer(placeState, cell);
-            // 1 - 0 boom!
-            // 2 - 0 run!
-            // 3 - 1 run!
-            if (explodeTimer - 1 - i - stepsToTarget < 0) {
-                return;
-            }
-
-            leftSteps = Math.min(leftSteps, explodeTimer - 1 - i - stepsToTarget);
+        // если на нашем пути оказался взрывающийся предмет, то мы его возьмем
+        // и взрывная волна не остановится на нём
+        if (cell.type === ITEM && cell.explode) {
+            return false;
         }
 
-        place.leftSteps = leftSteps;
-        avoidingPlaces.push(place);
-    });
+        if (!cell.explode) {
+            continue;
+        }
 
-    const result = avoidingPlaces.find(avoidPlace => avoidPlace.leftSteps > 0);
+        const explodeTimer = cellExplodeTimer(state, cell);
+        // 1 - 0 boom!
+        // 2 - 0 run!
+        // 3 - 1 run!
+        if (explodeTimer - 1 - i - stepsToTarget < 0) {
+            return false;
+        }
 
-    return result || null;
+        leftSteps = Math.min(leftSteps, explodeTimer - 1 - i - stepsToTarget);
+    }
+
+    if (leftSteps > 0) {
+        wavePlace.leftSteps = leftSteps;
+        return true;
+    }
+
+    return false;
+};
+
+const findExplodeAvoidingPath = (state, x, y, stepsToTarget = 0) => {
+    const wave = createWave(x, y);
+    const wavePlace = waveEnd(state, wave, explodeAvoidingPathCondition.bind(null, stepsToTarget));
+
+    return wavePlace || null;
 };
 
 const checkAvoidingPathAfterBomb = (state, x, y, bombRange, stepsToTarget) => {
@@ -512,7 +518,7 @@ const searchPlace = (state, my, curtar) => {
         markBombExplodes(state, bomb);
     }
 
-    const wave = createWave(state, my.x, my.y);
+    const wave = createWave(my.x, my.y);
     const wavePlaces = waveEnd(state, wave);
 
     // первым делом проверяем, нужно ли делать ноги
@@ -601,14 +607,17 @@ while (true) {
 
     log(allInput);
 
+    let firstPlaceTime = Date.now();
     const place = searchPlace(state, my);
+    firstPlaceTime = firstPlaceTime - Date.now();
+
     if (!place) {
         print('MOVE ' + my.x + ' ' + my.y + ' no target no type');
         continue;
     }
 
     const type = place.type;
-    target = place.target;
+    let target = place.target;
 
     log('bombs: ' + my.bombs + ' range: ' + my.bombRange);
 
@@ -619,9 +628,9 @@ while (true) {
 
     if ((type === 'boxes' || type === 'bombs') &&
         my.bombs > 0 && target.x === my.x && target.y === my.y) {
-        const placeNext = lastTime > TIME_THRESHOLD ? place : searchPlace(state, my, target);
-        if (lastTime > TIME_THRESHOLD) {
-            printErr('Time > Threshold');
+        const placeNext = firstPlaceTime > FIRST_PLACE_TIME_THRESHOLD ? place : searchPlace(state, my, target);
+        if (firstPlaceTime > FIRST_PLACE_TIME_THRESHOLD) {
+            console.log('First place time threshold! ' + firstPlaceTime);
         }
 
         if (!placeNext) {
@@ -648,7 +657,7 @@ while (true) {
             target.x + ' ' + target.y + ' ' + type);
     }
 
-    lastTime = (Date.now() - startTime);
+    const delta = Date.now() - startTime;
 
-    log('Time: ' + lastTime + 'ms');
+    log('Time: ' + delta + 'ms');
 }
