@@ -54,7 +54,8 @@ const getMap = () => {
             const cell = {
                 x: j,
                 y: i,
-                explodeFrom: []
+                explodeFrom: [],
+                enemies: []
             };
 
             if (s === '.') {
@@ -83,7 +84,7 @@ const getMap = () => {
 
 const clamp = (x1, x2, x) => x < x1 ? x1 : (x > x2 ? x2 : x);
 
-const explosiveWave = (map, x, y, range) => {
+const explosiveWave = (map, x, y, range, lookToItems) => {
     const r = range - 1;
     const h = height - 1;
     const w = width - 1;
@@ -96,13 +97,13 @@ const explosiveWave = (map, x, y, range) => {
         const p = map[i][x];
         if (p.type === WALL) { break; }
         explosians.push(p);
-        if (p.type === ITEM || p.type === BOX) { break; }
+        if (lookToItems && p.type === ITEM || p.type === BOX) { break; }
     }
     for (let i = y + 1; i <= maxY; i++) {
         const p = map[i][x];
         if (p.type === WALL) { break; }
         explosians.push(p);
-        if (p.type === ITEM || p.type === BOX) { break; }
+        if (lookToItems && p.type === ITEM || p.type === BOX) { break; }
     }
 
     const minX = clamp(0, w, x - r);
@@ -112,13 +113,13 @@ const explosiveWave = (map, x, y, range) => {
         const p = map[y][i];
         if (p.type === WALL) { break; }
         explosians.push(p);
-        if (p.type === ITEM || p.type === BOX) { break; }
+        if (lookToItems && p.type === ITEM || p.type === BOX) { break; }
     }
     for (let i = x + 1; i <= maxX; i++) {
         const p = map[y][i];
         if (p.type === WALL) { break; }
         explosians.push(p);
-        if (p.type === ITEM || p.type === BOX) { break; }
+        if (lookToItems && p.type === ITEM || p.type === BOX) { break; }
     }
 
     return explosians;
@@ -131,26 +132,25 @@ const addBomb = (state, bomb) => {
     const index = bombs.push(bomb) - 1;
     bomb.index = index;
 
-    map[y][x] = {
-        x, y,
-        type: BOMB,
-        data: index,
-        explode: true,
-        explodeFrom: [index]
-    };
+    const cell = map[y][x];
+    cell.type = BOMB;
+    cell.data = index;
+    cell.explode = true;
+    cell.explodeFrom = [index];
 };
 
 const addItem = (state, item) => {
     const {map, items} = state;
     const index = items.push(item) - 1;
-    const {x, y} = item;
+    const cell = map[item.y][item.x];
+    cell.type = ITEM;
+    cell.data = index;
+};
 
-    map[y][x] = {
-        x, y,
-        type: ITEM,
-        data: index,
-        explodeFrom: []
-    };
+const addEnemy = (state, enemy) => {
+    const {map, enemies} = state;
+    const index = enemies.push(enemy) - 1;
+    map[enemy.y][enemy.x].enemies.push(index);
 };
 
 const markBombExplodes = (state, bomb) => {
@@ -173,8 +173,9 @@ const checkPlace = (map, x, y) => {
         return false;
     }
 
-    const type = map[y][x].type;
-    return type !== BOX && type !== BOMB && type !== WALL;
+    const {type, enemies} = map[y][x];
+    return type !== BOX && type !== BOMB && type !== WALL &&
+        enemies.length === 0;
 };
 
 const createWave = (x, y) => ({
@@ -291,7 +292,8 @@ const cloneState = state => {
                 explode: cell.explode,
                 data: cell.data,
                 type: cell.type,
-                explodeFrom: cell.explodeFrom.slice()
+                explodeFrom: cell.explodeFrom.slice(),
+                enemies: cell.enemies.slice()
             };
         }
     }
@@ -407,7 +409,7 @@ const searchBoxes = (state, wavePlaces, my, curtar) => {
             return;
         }
 
-        const explosians = explosiveWave(map, x, y, my.bombRange);
+        const explosians = explosiveWave(map, x, y, my.bombRange, true);
         const boxExplosians = explosians.filter(p => p.type === BOX && !p.explode);
 
         if (boxExplosians.length === 0) {
@@ -420,51 +422,6 @@ const searchBoxes = (state, wavePlaces, my, curtar) => {
             step: path[1] || {x, y},
             path
         });
-    });
-
-    places.sort((a, b) => {
-        // если у нас бомб больше одной - выбираем ближайший ящик
-        // если одна - ищем наиболее эффективных бах!
-        if (my.bombs > 1) {
-            return a.distance - b.distance;
-        }
-
-        const count = b.explosians.length - a.explosians.length;
-
-        if (count === 0) {
-            return a.distance - b.distance;
-        }
-
-        return count;
-    });
-
-    const result = places.find(place => {
-        const {x, y} = place;
-        // если после постановки бомбы в данном случае не останется места спрятаться
-        // то не ставим её
-        const canAvoid = checkAvoidingPathAfterBomb(state, x, y, my.bombRange, place.path.length - 1);
-        return canAvoid;
-    });
-
-    return result || null;
-};
-
-const searchBombPlace = (state, wavePlaces, my) => {
-    const {map} = state;
-    const places = [];
-
-    wavePlaces.forEach(wavePlace => {
-        const {x, y, distance, path} = wavePlace;
-        const explosians = explosiveWave(map, x, y, my.bombRange);
-
-        const place = {
-            x, y, distance,
-            explosians,
-            step: path[1] || {x, y},
-            path
-        };
-
-        places.push(place);
     });
 
     places.sort((a, b) => {
@@ -576,13 +533,13 @@ const searchPlace = (state, my, curtar) => {
     }
 
     // коробки кончились - бегаем и ставим бомбы
-    const bombPlace = searchBombPlace(state, wavePlaces, my);
-    if (bombPlace) {
-        return {
-            type: 'bombs',
-            target: bombPlace
-        };
-    }
+    // const bombPlace = searchBombPlace(state, wavePlaces, my);
+    // if (bombPlace) {
+    //     return {
+    //         type: 'bombs',
+    //         target: bombPlace
+    //     };
+    // }
 
     // нечего делать? просто убегаем от бомб
     const avoidPlace = searchAvoidPlace(state, wavePlaces, my);
@@ -624,7 +581,7 @@ while (true) {
             if (owner === myId) {
                 my = createUser(owner, x, y, param1, param2);
             } else {
-                state.enemies.push(createUser(owner, x, y, param1, param2));
+                addEnemy(state, createUser(owner, x, y, param1, param2));
             }
         } else if (entityType === 1) {
             const bomb = createBomb(owner, x, y, param1, param2);
